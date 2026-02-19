@@ -25,17 +25,17 @@ const (
 )
 
 type StrategyBoardObject struct {
-	TypeID         int
-	Text           string
-	Visible        bool
-	FlipHorizontal bool
-	FlipVertical   bool
-	X              int
-	Y              int
-	Angle          int
-	Color          color.NRGBA
-	Scale          int
-	Params         []int
+	TypeID         int         `json:"type_id"`
+	Text           string      `json:"text"`
+	Visible        bool        `json:"visible"`
+	FlipHorizontal bool        `json:"flip_horizontal"`
+	FlipVertical   bool        `json:"flip_vertical"`
+	X              int         `json:"x"`
+	Y              int         `json:"y"`
+	Angle          int         `json:"angle"`
+	Color          color.NRGBA `json:"color"`
+	Scale          int         `json:"scale"`
+	Params         []int       `json:"params"`
 }
 
 func (o StrategyBoardObject) ScaleFactor(factor float64) (float64, float64) {
@@ -52,9 +52,9 @@ func (o StrategyBoardObject) ScaleFactor(factor float64) (float64, float64) {
 }
 
 type StrategyBoard = struct {
-	Name       string
-	Background int
-	Objects    []StrategyBoardObject
+	Name       string                `json:"name"`
+	Background int                   `json:"background"`
+	Objects    []StrategyBoardObject `json:"object"`
 }
 
 func DecodeStrategyBoard(input string) ([]byte, error) {
