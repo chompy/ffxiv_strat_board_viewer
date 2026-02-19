@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/base64"
+	"encoding/binary"
 	"image/color"
 	"io"
 	"math"
@@ -12,57 +13,27 @@ import (
 	"golang.org/x/text/encoding/charmap"
 )
 
-const strategyBoardPrefix = "[stgy:a"
-const strategyBoardSuffix = "]"
+const boardPrefix = "[stgy:a"
+const boardSuffix = "]"
 
-type StrategyBoardObjectFlag uint8
+var forwardTranslationTable = map[rune]rune{'+': 'N', '-': 'P', '0': 'x', '1': 'g', '2': '0', '3': 'K', '4': '8', '5': 'S', '6': 'J', '7': '2', '8': 's', '9': 'Z', 'A': 'D', 'B': 'F', 'C': 't', 'D': 'T', 'E': '6', 'F': 'E', 'G': 'a', 'H': 'V', 'I': 'c', 'J': 'p', 'K': 'L', 'L': 'M', 'M': 'm', 'N': 'e', 'O': 'j', 'P': '9', 'Q': 'X', 'R': 'B', 'S': '4', 'T': 'R', 'U': 'Y', 'V': '7', 'W': '_', 'X': 'n', 'Y': 'O', 'Z': 'b', 'a': 'i', 'b': '-', 'c': 'v', 'd': 'H', 'e': 'C', 'f': 'A', 'g': 'r', 'h': 'W', 'i': 'o', 'j': 'd', 'k': 'I', 'l': 'q', 'm': 'h', 'n': 'U', 'o': 'l', 'p': 'k', 'q': '3', 'r': 'f', 's': 'y', 't': '5', 'u': 'G', 'v': 'w', 'w': '1', 'x': 'u', 'y': 'z', 'z': 'Q'}
+
+type BoardObjectFlag uint8
 
 const (
-	Visible StrategyBoardObjectFlag = 1 << iota
+	Visible BoardObjectFlag = 1 << iota
 	FlipHorizontal
 	FlipVertical
 	Locked
 )
 
-type StrategyBoardObject struct {
-	TypeID         int         `json:"type_id"`
-	Text           string      `json:"text"`
-	Visible        bool        `json:"visible"`
-	FlipHorizontal bool        `json:"flip_horizontal"`
-	FlipVertical   bool        `json:"flip_vertical"`
-	X              int         `json:"x"`
-	Y              int         `json:"y"`
-	Angle          int         `json:"angle"`
-	Color          color.NRGBA `json:"color"`
-	Scale          int         `json:"scale"`
-	Params         []int       `json:"params"`
-}
-
-func (o StrategyBoardObject) ScaleFactor(factor float64) (float64, float64) {
-	scale := float64(o.Scale) * factor
-	flipH := 1.0
-	if o.FlipHorizontal {
-		flipH = -1.0
-	}
-	flipV := 1.0
-	if o.FlipVertical {
-		flipV = -1.0
-	}
-	return scale * flipH, scale * flipV
-}
-
-type StrategyBoard = struct {
-	Name       string                `json:"name"`
-	Background int                   `json:"background"`
-	Objects    []StrategyBoardObject `json:"object"`
-}
-
-func DecodeStrategyBoard(input string) ([]byte, error) {
-	if !strings.HasPrefix(input, strategyBoardPrefix) || !strings.HasSuffix(input, strategyBoardSuffix) || len(input) < len(strategyBoardPrefix)+len(strategyBoardSuffix)+1 {
+/* Unpack board share code to raw bytes. */
+func UnpackBoard(input string) ([]byte, error) {
+	if !strings.HasPrefix(input, boardPrefix) || !strings.HasSuffix(input, boardSuffix) || len(input) < len(boardPrefix)+len(boardSuffix)+1 {
 		return nil, ParseError
 	}
 
-	input = input[len(strategyBoardPrefix) : len(input)-len(strategyBoardSuffix)]
+	input = input[len(boardPrefix) : len(input)-len(boardSuffix)]
 
 	inputRunes := []rune(input)
 	seed := mapIn(forwardTranslateRune(inputRunes[0]))
@@ -72,7 +43,6 @@ func DecodeStrategyBoard(input string) ([]byte, error) {
 		t := forwardTranslateRune(c)
 		x := mapIn(t)
 		y := (x - seed - i) & 0x3f
-		forwardTranslate(string(c))
 		buffer[i] = mapOut(y)
 	}
 
@@ -99,74 +69,81 @@ func DecodeStrategyBoard(input string) ([]byte, error) {
 	return decompressed, nil
 }
 
-func ParseStrategyBoard(data []byte) (StrategyBoard, error) {
+func ParseBoard(data []byte) (Board, error) {
 
+	// skip first 24 bytes
 	pos := 24
+
+	// assert section 1
 	if readUint16(data, &pos) != 1 {
-		return StrategyBoard{}, SectionParseError
+		return Board{}, SectionParseError
 	}
 
+	// read board name
 	name := readString(data, &pos)
 
-	objects := make([]StrategyBoardObject, 0)
-
-	// parse objects and object text
+	// read objects and object text
+	objects := make([]BoardObject, 0)
 	for {
+		// object section is 2, if next uint16 isn't 2 then we're done parsing objects
 		if readUint16(data, &pos) != 2 {
 			pos -= 2
 			break
 		}
+		// read object type id
 		typeId := readUint16(data, &pos)
+		// read object text, type id 100 is text object
 		text := ""
 		if typeId == 100 {
+			// assert section 3
 			if readUint16(data, &pos) != 3 {
-				return StrategyBoard{}, SectionParseError
+				return Board{}, SectionParseError
 			}
 			text = readString(data, &pos)
 		}
-		objects = append(objects, StrategyBoardObject{TypeID: int(typeId), Text: text})
+		objects = append(objects, BoardObject{TypeID: int(typeId), Text: text})
 	}
 
-	// parse object flags
+	// read object flags
 	if err := parseSectionHeader(4, data, &pos, objects); err != nil {
-		return StrategyBoard{}, err
+		return Board{}, err
 	}
 	for i := range objects {
-		flags := StrategyBoardObjectFlag(readUint16(data, &pos))
+		flags := BoardObjectFlag(readUint16(data, &pos))
 		objects[i].Visible = Visible&flags != 0
 		objects[i].FlipHorizontal = FlipHorizontal&flags != 0
 		objects[i].FlipVertical = FlipVertical&flags != 0
 	}
 
-	// parse object coordinates
+	// read object coordinates
 	if err := parseSectionHeader(5, data, &pos, objects); err != nil {
-		return StrategyBoard{}, err
+		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].X = int(math.Round((float64(readUint16(data, &pos)) / 5120) * 1024))
 		objects[i].Y = int(math.Round((float64(readUint16(data, &pos)) / 3840) * 768))
 	}
 
-	// parse object angle
+	// read object angle
 	if err := parseSectionHeader(6, data, &pos, objects); err != nil {
-		return StrategyBoard{}, err
+		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].Angle = readInt16(data, &pos)
 	}
 
-	// parse object scale
+	// read object scale
 	if err := parseSectionHeader(7, data, &pos, objects); err != nil {
-		return StrategyBoard{}, err
+		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].Scale = int(readByte(data, &pos))
 	}
 	pos += len(objects) % 2
 
-	// parse object color
+	// read object color
 	if err := parseSectionHeader(8, data, &pos, objects); err != nil {
-		return StrategyBoard{}, err
+		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].Color = color.NRGBA{
@@ -177,20 +154,28 @@ func ParseStrategyBoard(data []byte) (StrategyBoard, error) {
 		}
 	}
 
-	// parse object params
+	// read object params
 	for _, section := range []int{10, 11, 12} {
 		if err := parseSectionHeader(section, data, &pos, objects); err != nil {
-			return StrategyBoard{}, err
+			return Board{}, err
 		}
 		for i := range objects {
 			objects[i].Params = append(objects[i].Params, readInt16(data, &pos))
 		}
 	}
-	return StrategyBoard{Name: name, Objects: objects}, nil
+	return Board{Name: name, Objects: objects}, nil
 
 }
 
-func parseSectionHeader(expectedSectionNumber int, data []byte, pos *int, objects []StrategyBoardObject) error {
+func LoadBoard(input string) (Board, error) {
+	data, err := UnpackBoard(input)
+	if err != nil {
+		return Board{}, err
+	}
+	return ParseBoard(data)
+}
+
+func parseSectionHeader(expectedSectionNumber int, data []byte, pos *int, objects []BoardObject) error {
 	if readUint16(data, pos) != expectedSectionNumber {
 		return SectionParseError
 	}
@@ -199,4 +184,74 @@ func parseSectionHeader(expectedSectionNumber int, data []byte, pos *int, object
 		return ObjectCountParseError
 	}
 	return nil
+}
+
+func translateRune(c rune, translationTable map[rune]rune) rune {
+	if translationTable[c] != 0 {
+		return translationTable[c]
+	}
+	return c
+}
+
+func forwardTranslateRune(c rune) rune {
+	return translateRune(c, forwardTranslationTable)
+}
+
+func mapIn(c rune) int {
+	if c >= 'A' && c <= 'Z' {
+		return int(c) - 65
+	}
+	if c >= 'a' && c <= 'z' {
+		return int(c) - 71
+	}
+	if c >= '0' && c <= '9' {
+		return int(c) + 4
+	}
+	if c == '-' || c == '>' {
+		return 62
+	}
+	if c == '_' || c == '?' {
+		return 63
+	}
+	return 0
+}
+
+func mapOut(n int) rune {
+	if n < 26 {
+		return rune(n + 65)
+	}
+	if n < 52 {
+		return rune(n + 71)
+	}
+	if n < 62 {
+		return rune(n - 4)
+	}
+	if n == 62 {
+		return '-'
+	}
+	return '_'
+}
+
+func readByte(data []byte, pos *int) byte {
+	out := data[*pos]
+	*pos += 1
+	return out
+}
+
+func readUint16(data []byte, pos *int) int {
+	out := binary.LittleEndian.Uint16(data[*pos:])
+	*pos += 2
+	return int(out)
+}
+
+func readInt16(data []byte, pos *int) int {
+	return int(int16(readUint16(data, pos)))
+}
+
+func readString(data []byte, pos *int) string {
+	length := int(binary.LittleEndian.Uint16(data[*pos:]))
+	*pos += 2
+	out := string(data[*pos : *pos+length])
+	*pos += length
+	return out
 }

@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-OBJECTS_TS_URL="https://raw.githubusercontent.com/Ennea/ffxiv-strategy-board-viewer/refs/heads/master/objects.ts"
+GIT_URL="https://github.com/Ennea/ffxiv-strategy-board-viewer.git"
 
-echo """import {spriteParameters, StrategyBoardObject} from './object.ts';
+# clone source repo to fetch assets
+mkdir -p $SCRIPT_DIR/data
+git clone $GIT_URL $SCRIPT_DIR/data/ffxiv-strategy-board-viewer
+
+# make assets.json
+echo """import {spriteParameters, StrategyBoardObject} from './ffxiv-strategy-board-viewer/objects.ts';
 console.log(JSON.stringify(
 Object.entries(spriteParameters).map(([key, value]) => ({
     id: parseInt(key),
     name: StrategyBoardObject[key as keyof typeof StrategyBoardObject].toString(),
     ...value
-}))))""" > $SCRIPT_DIR/extract.ts
+}))))""" > $SCRIPT_DIR/data/extract.ts
+tsx $SCRIPT_DIR/data/extract.ts > $SCRIPT_DIR/data/assets.json
+rm $SCRIPT_DIR/data/extract.ts
 
-curl "$OBJECTS_TS_URL" -o "$SCRIPT_DIR/object.ts"
-tsx $SCRIPT_DIR/extract.ts > $SCRIPT_DIR/../../assets/assets.json
-
-rm extract.ts
-rm object.ts
+go run $SCRIPT_DIR

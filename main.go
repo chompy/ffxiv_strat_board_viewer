@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"image/jpeg"
+	"io"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -12,35 +15,62 @@ func main() {
 		panic(MissingInput)
 	}
 
-	board := flag.String("board", "", "strategy board data")
-	asImage := flag.String("image", "", "output path for strategy board image")
-	asJson := flag.Bool("json", false, "output parsed strategy board as json")
+	input := flag.String("input", "", "strategy board share code")
+	output := flag.String("output", "image", "format to output strategy board as (json, png, jpeg)")
+
 	flag.Parse()
 
-	data, err := DecodeStrategyBoard(*board)
+	// read input from stdin
+	if *input == "" {
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			rawInput, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				panic(err)
+			}
+			*input = string(rawInput)
+		}
+	}
+
+	// load board
+	board, err := LoadBoard(strings.TrimSpace(*input))
 	if err != nil {
 		panic(err)
 	}
 
-	sb, err := ParseStrategyBoard(data)
-	if err != nil {
-		panic(err)
-	}
-
-	if *asJson {
-		out, err := json.Marshal(sb)
-		if err != nil {
-			panic(err)
+	switch *output {
+	case "json":
+		{
+			out, err := json.Marshal(board)
+			if err != nil {
+				panic(err)
+			}
+			os.Stdout.Write(out)
+			break
 		}
-		os.Stdout.Write(out)
-	}
-
-	if *asImage != "" {
-		image, err := DrawStrategyBoard(sb)
-		if err != nil {
-			panic(err)
+	case "png":
+		{
+			image, err := DrawBoard(board)
+			if err != nil {
+				panic(err)
+			}
+			if err := image.EncodePNG(os.Stdout); err != nil {
+				panic(err)
+			}
+			break
 		}
-		image.SavePNG(*asImage)
+	case "jpeg":
+	case "jpg":
+		{
+			image, err := DrawBoard(board)
+			if err != nil {
+				panic(err)
+			}
+			if err := jpeg.Encode(os.Stdout, image.Image(), nil); err != nil {
+				panic(err)
+			}
+			break
+		}
 	}
 
 }

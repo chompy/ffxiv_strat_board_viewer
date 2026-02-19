@@ -15,21 +15,25 @@ const drawObjectPoint = false
 const canvasWidth = 1024
 const canvasHeight = 768
 
-func DrawStrategyBoard(board StrategyBoard) (*gg.Context, error) {
+func DrawBoard(board Board) (*gg.Context, error) {
 
-	assets, err := LoadStrategyBoardAssets()
+	assetList, err := board.Assets()
 	if err != nil {
 		return nil, err
 	}
 
 	c := gg.NewContext(canvasWidth, canvasHeight)
 
-	if err := drawBackground(board, c); err != nil {
-		return nil, err
+	// draw background
+	for _, asset := range assetList {
+		if asset.Name == "Background" {
+			c.DrawImage(asset.Image, 0, 0)
+			break
+		}
 	}
 
 	for _, object := range slices.Backward(board.Objects) {
-		if err := drawObject(object, assets, c); err != nil {
+		if err := drawObject(object, assetList, c); err != nil {
 			return nil, err
 		}
 		if drawObjectPoint {
@@ -40,43 +44,39 @@ func DrawStrategyBoard(board StrategyBoard) (*gg.Context, error) {
 	return c, nil
 }
 
-func drawBackground(board StrategyBoard, c *gg.Context) error {
-	img, err := loadBackgroundImage(board.Background)
-	if err != nil {
-		return err
-	}
-	c.DrawImage(img, 0, 0)
-	return nil
-}
-
-func drawObject(object StrategyBoardObject, assets StrategyBoardAssets, c *gg.Context) error {
-	objectAsset, err := assets.GetByID(object.TypeID)
-	if err != nil {
-		return err
-	}
-	if objectAsset.Special {
-		switch object.TypeID {
-		case 10:
-			if objectAsset.Image == "" {
-				objectAsset.Image = "circle_aoe"
+func drawObject(object BoardObject, assets []Asset, c *gg.Context) error {
+	switch object.TypeID {
+	case 10:
+		var arcImage image.Image
+		for _, asset := range assets {
+			if asset.Name == "xcircle_aoe.png" {
+				arcImage = asset.Image
+				break
 			}
-			return drawArc(object, objectAsset, c)
-		case 11:
-			return drawLineAoe(object, c)
-		case 12:
-			return drawLine(object, c)
-		case 17:
-			return drawArc(object, objectAsset, c)
-		case 100:
-			return drawTextObject(object, c)
 		}
-		log.Printf("object %d", object.TypeID)
-		return nil
+		return drawArc(object, arcImage, c)
+	case 11:
+		return drawLineAoe(object, c)
+	case 12:
+		return drawLine(object, c)
+	case 17:
+		return drawArc(object, nil, c)
+	case 100:
+		return drawTextObject(object, c)
+	default:
+		{
+			for _, a := range assets {
+				if a.ID == object.TypeID {
+					return drawImageObject(object, &a, c)
+				}
+			}
+		}
 	}
-	return drawImageObject(object, objectAsset, c)
+	log.Printf("Asset not found: %d", object.TypeID)
+	return AssetNotFound
 }
 
-func drawTextObject(object StrategyBoardObject, c *gg.Context) error {
+func drawTextObject(object BoardObject, c *gg.Context) error {
 	if object.TypeID != 100 {
 		return DrawUnexpectedObjectError
 	}
@@ -92,24 +92,19 @@ func drawTextObject(object StrategyBoardObject, c *gg.Context) error {
 	return nil
 }
 
-func drawImageObject(object StrategyBoardObject, asset *StrategyBoardAsset, c *gg.Context) error {
-	image, err := asset.LoadImage()
-	if err != nil {
-		return err
-	}
-
+func drawImageObject(object BoardObject, asset *Asset, c *gg.Context) error {
 	c.Translate(float64(object.X), float64(object.Y))
 	c.Scale(object.ScaleFactor(asset.Scale))
 	c.Rotate(gg.Radians(float64(object.Angle)))
 
 	// TODO image transparency
 
-	c.DrawImageAnchored(image, 0, 0, .5, .5)
+	c.DrawImageAnchored(asset.Image, 0, 0, .5, .5)
 	c.Identity()
 	return nil
 }
 
-func drawLineAoe(object StrategyBoardObject, c *gg.Context) error {
+func drawLineAoe(object BoardObject, c *gg.Context) error {
 	c.Translate(float64(object.X), float64(object.Y))
 	c.Rotate(gg.Radians(float64(object.Angle)))
 	w, h := float64(object.Params[0]), float64(object.Params[1])
@@ -120,7 +115,7 @@ func drawLineAoe(object StrategyBoardObject, c *gg.Context) error {
 	return nil
 }
 
-func drawLine(object StrategyBoardObject, c *gg.Context) error {
+func drawLine(object BoardObject, c *gg.Context) error {
 	x2, y2 := math.Round(float64(object.Params[0])/5120*canvasWidth), math.Round(float64(object.Params[1])/3840*canvasHeight)
 	c.SetLineWidth(float64(object.Params[2]) * 2)
 	c.SetColor(object.Color)
@@ -137,18 +132,7 @@ func drawLine(object StrategyBoardObject, c *gg.Context) error {
 	return nil
 }
 
-func drawArc(object StrategyBoardObject, asset *StrategyBoardAsset, c *gg.Context) error {
-
-	// load masking image if one is provided for asset
-	var image image.Image = nil
-	if asset != nil && asset.Image != "" {
-		var err error
-		image, err = asset.LoadImage()
-		if err != nil {
-			return err
-		}
-	}
-
+func drawArc(object BoardObject, image image.Image, c *gg.Context) error {
 	// calculate the angle of the arc and its radius
 	arcAngle := float64(object.Params[0]) / 180.0 * math.Pi
 	startAngle := -math.Pi / 2.0
@@ -207,7 +191,7 @@ func drawArc(object StrategyBoardObject, asset *StrategyBoardAsset, c *gg.Contex
 
 }
 
-func drawPoint(object StrategyBoardObject, c *gg.Context) {
+func drawPoint(object BoardObject, c *gg.Context) {
 	c.Translate(float64(object.X), float64(object.Y))
 	c.SetColor(color.NRGBA{255, 0, 0, 255})
 	c.DrawPoint(0, 0, 10)
