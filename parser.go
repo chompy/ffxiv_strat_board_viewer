@@ -1,4 +1,4 @@
-package main
+package strategy_board
 
 import (
 	"bytes"
@@ -7,12 +7,14 @@ import (
 	"encoding/binary"
 	"image/color"
 	"io"
+	"log"
 	"math"
 	"strings"
 
 	"golang.org/x/text/encoding/charmap"
 )
 
+const logVerbose = false
 const boardPrefix = "[stgy:a"
 const boardSuffix = "]"
 
@@ -28,7 +30,8 @@ const (
 )
 
 /* Unpack board share code to raw bytes. */
-func UnpackBoard(input string) ([]byte, error) {
+func Unpack(input string) ([]byte, error) {
+	log.Println("Unpack strategy board")
 	if !strings.HasPrefix(input, boardPrefix) || !strings.HasSuffix(input, boardSuffix) || len(input) < len(boardPrefix)+len(boardSuffix)+1 {
 		return nil, ParseError
 	}
@@ -69,7 +72,9 @@ func UnpackBoard(input string) ([]byte, error) {
 	return decompressed, nil
 }
 
-func ParseBoard(data []byte) (Board, error) {
+/* Parse strategy board data */
+func Parse(data []byte) (Board, error) {
+	log.Printf("Parse %d byte strategy board", len(data))
 
 	// skip first 24 bytes
 	pos := 24
@@ -81,9 +86,10 @@ func ParseBoard(data []byte) (Board, error) {
 
 	// read board name
 	name := readString(data, &pos)
+	log.Printf("  - NAME: %s", name)
 
 	// read objects and object text
-	objects := make([]BoardObject, 0)
+	objects := make([]Object, 0)
 	for {
 		// object section is 2, if next uint16 isn't 2 then we're done parsing objects
 		if readUint16(data, &pos) != 2 {
@@ -101,10 +107,12 @@ func ParseBoard(data []byte) (Board, error) {
 			}
 			text = readString(data, &pos)
 		}
-		objects = append(objects, BoardObject{TypeID: int(typeId), Text: text})
+		objects = append(objects, Object{TypeID: int(typeId), Text: text})
 	}
+	log.Printf("  - %d objects read", len(objects))
 
 	// read object flags
+	log.Println("  - Parse object flags")
 	if err := parseSectionHeader(4, data, &pos, objects); err != nil {
 		return Board{}, err
 	}
@@ -113,31 +121,46 @@ func ParseBoard(data []byte) (Board, error) {
 		objects[i].Visible = Visible&flags != 0
 		objects[i].FlipHorizontal = FlipHorizontal&flags != 0
 		objects[i].FlipVertical = FlipVertical&flags != 0
+		if logVerbose {
+			log.Printf("    - OBJ %d Flags: %d", i+1, flags)
+		}
 	}
 
 	// read object coordinates
+	log.Println("  - Parse object coordinates")
 	if err := parseSectionHeader(5, data, &pos, objects); err != nil {
 		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].X = int(math.Round((float64(readUint16(data, &pos)) / 5120) * 1024))
 		objects[i].Y = int(math.Round((float64(readUint16(data, &pos)) / 3840) * 768))
+		if logVerbose {
+			log.Printf("    - OBJ %d Coordinates: %d, %d", i+1, objects[i].X, objects[i].Y)
+		}
 	}
 
 	// read object angle
+	log.Println("  - Parse object angles")
 	if err := parseSectionHeader(6, data, &pos, objects); err != nil {
 		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].Angle = readInt16(data, &pos)
+		if logVerbose {
+			log.Printf("    - OBJ %d Angle: %d", i+1, objects[i].Angle)
+		}
 	}
 
 	// read object scale
+	log.Println("  - Parse object scales")
 	if err := parseSectionHeader(7, data, &pos, objects); err != nil {
 		return Board{}, err
 	}
 	for i := range objects {
 		objects[i].Scale = int(readByte(data, &pos))
+		if logVerbose {
+			log.Printf("    - OBJ %d Scale: %d", i+1, objects[i].Scale)
+		}
 	}
 	pos += len(objects) % 2
 
@@ -152,6 +175,9 @@ func ParseBoard(data []byte) (Board, error) {
 			uint8(readByte(data, &pos)),
 			uint8(math.Round(255.0 * (1.0 - float64(uint8(readByte(data, &pos)))/100.0))),
 		}
+		if logVerbose {
+			log.Printf("    - OBJ %d Color: R%d G%d B%d A%d", i+1, objects[i].Color.R, objects[i].Color.G, objects[i].Color.B, objects[i].Color.A)
+		}
 	}
 
 	// read object params
@@ -161,21 +187,25 @@ func ParseBoard(data []byte) (Board, error) {
 		}
 		for i := range objects {
 			objects[i].Params = append(objects[i].Params, readInt16(data, &pos))
+			if logVerbose {
+				log.Printf("    - OBJ %d Params: %d", i+1, objects[i].Params)
+			}
 		}
 	}
 	return Board{Name: name, Objects: objects}, nil
 
 }
 
-func LoadBoard(input string) (Board, error) {
-	data, err := UnpackBoard(input)
+func Load(input string) (Board, error) {
+	log.Println("Load strategy board")
+	data, err := Unpack(input)
 	if err != nil {
 		return Board{}, err
 	}
-	return ParseBoard(data)
+	return Parse(data)
 }
 
-func parseSectionHeader(expectedSectionNumber int, data []byte, pos *int, objects []BoardObject) error {
+func parseSectionHeader(expectedSectionNumber int, data []byte, pos *int, objects []Object) error {
 	if readUint16(data, pos) != expectedSectionNumber {
 		return SectionParseError
 	}

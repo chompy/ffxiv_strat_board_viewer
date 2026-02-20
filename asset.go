@@ -1,17 +1,28 @@
-package main
+package strategy_board
 
 import (
 	"archive/zip"
+	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
 	"io"
+	"log"
+
+	"github.com/golang/freetype/truetype"
+	"golang.org/x/image/font"
 )
 
-const assetZipPath = "assets.zip"
+//go:embed assets.zip
+var assetsZipArchive []byte
+
 const assetJsonPath = "assets.json"
+const assetFontPath = "Roboto-Medium.ttf"
+const assetFontSize = 30
 const defaultObjectScale = 1.0 / 200.0
+const arcImagePath = "xcircle_aoe.png"
 
 type Asset struct {
 	ID    int         `json:"id"`
@@ -20,34 +31,89 @@ type Asset struct {
 	Image image.Image `json:"-"`
 }
 
-var additionalImages = []string{"xcircle_aoe.png"}
+var assetList []Asset
+var boardFont font.Face
+var arcImage image.Image
 
-/* Load asset list from zip reader */
-func loadAssetList(zr *zip.ReadCloser) ([]Asset, error) {
-	f, err := zr.Open(assetJsonPath)
+/* Read asset zip archive stored as go embed */
+func loadAssetsZip() (*zip.Reader, error) {
+	log.Println("Read assets zip archive")
+	return zip.NewReader(bytes.NewReader(assetsZipArchive), int64(len(assetsZipArchive)))
+}
+
+/* Load asset from zip reader */
+func loadAsset(zr *zip.Reader, name string) ([]byte, error) {
+	if zr == nil {
+		var err error
+		zr, err = loadAssetsZip()
+		if err != nil {
+			return nil, err
+		}
+	}
+	log.Printf("  - Load asset %s", name)
+	f, err := zr.Open(name)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	return io.ReadAll(f)
+}
 
-	data, err := io.ReadAll(f)
+/* Load asset list from zip reader */
+func loadAssetList(zr *zip.Reader) ([]Asset, error) {
+	if assetList != nil {
+		return assetList, nil
+	}
+	data, err := loadAsset(zr, assetJsonPath)
 	if err != nil {
 		return nil, err
 	}
-	assets := make([]Asset, 0)
-	if err := json.Unmarshal(data, &assets); err != nil {
+	assetList = make([]Asset, 0)
+	if err := json.Unmarshal(data, &assetList); err != nil {
 		return nil, err
 	}
-	for i := range assets {
-		if assets[i].Scale == 0 {
-			assets[i].Scale = defaultObjectScale
+	for i := range assetList {
+		if assetList[i].Scale == 0 {
+			assetList[i].Scale = defaultObjectScale
 		}
 	}
-	return assets, nil
+	return assetList, nil
+}
+
+/* Load font used for text in strategy board */
+func loadFont(zr *zip.Reader) (font.Face, error) {
+	if boardFont != nil {
+		return boardFont, nil
+	}
+	var err error
+	if zr == nil {
+		zr, err = loadAssetsZip()
+		if err != nil {
+			return nil, err
+		}
+	}
+	fontBytes, err := loadAsset(zr, assetFontPath)
+	if err != nil {
+		return nil, err
+	}
+	font, err := truetype.Parse(fontBytes)
+	if err != nil {
+		return nil, err
+	}
+	boardFont = truetype.NewFace(font, &truetype.Options{Size: assetFontSize})
+	return boardFont, nil
 }
 
 /* Load image from zip reader */
-func loadImage(zr *zip.ReadCloser, name string) (image.Image, error) {
+func loadImage(zr *zip.Reader, name string) (image.Image, error) {
+	if zr == nil {
+		var err error
+		zr, err = loadAssetsZip()
+		if err != nil {
+			return nil, err
+		}
+	}
+	log.Printf("  - Load asset %s", name)
 	f, err := zr.Open(name)
 	if err != nil {
 		return nil, err
@@ -57,31 +123,39 @@ func loadImage(zr *zip.ReadCloser, name string) (image.Image, error) {
 }
 
 /* Load image for asset from zip reader */
-func (a *Asset) loadAssetImage(zr *zip.ReadCloser) error {
-	image, err := loadImage(zr, fmt.Sprintf("%d.png", a.ID))
+func (a *Asset) loadAssetImage(zr *zip.Reader) error {
+	image, err := loadImage(zr, fmt.Sprintf("o%d.png", a.ID))
 	a.Image = image
 	return err
 }
 
 /* Load background image from zip read */
-func loadBackgroundImage(zr *zip.ReadCloser, id int) (image.Image, error) {
+func loadBackgroundImage(zr *zip.Reader, id int) (image.Image, error) {
 	return loadImage(zr, fmt.Sprintf("x%d.png", id+1))
 }
 
-func LoadBoardAssets(board Board) ([]Asset, error) {
-	zr, err := zip.OpenReader(assetZipPath)
-	if err != nil {
-		return nil, err
+/* Load arc image, aka circle aoe, used by a few objects */
+func loadArcImage(zr *zip.Reader) (image.Image, error) {
+	if arcImage != nil {
+		return arcImage, nil
 	}
-	defer zr.Close()
+	var err error
+	arcImage, err = loadImage(zr, arcImagePath)
+	return arcImage, err
+}
 
+/* Load assets needed by given strategy board */
+func (b Board) Assets() ([]Asset, error) {
+	// load asset data
+	zr, err := loadAssetsZip()
 	assets, err := loadAssetList(zr)
 	if err != nil {
 		return nil, err
 	}
 
+	// build list of board specific assets
 	boardAssets := make([]Asset, 0)
-	for _, obj := range board.Objects {
+	for _, obj := range b.Objects {
 		hasAsset := false
 		for _, existingBoardAsset := range boardAssets {
 			if existingBoardAsset.ID == obj.TypeID {
@@ -102,16 +176,13 @@ func LoadBoardAssets(board Board) ([]Asset, error) {
 		}
 	}
 
-	bgImage, err := loadBackgroundImage(zr, board.Background)
+	// load background image as special asset (ID: -1)
+	bgImage, err := loadBackgroundImage(zr, b.Background)
 	boardAssets = append(boardAssets, Asset{Name: "Background", ID: -1, Image: bgImage})
 
-	for i, imageName := range additionalImages {
-		additionalImage, err := loadImage(zr, imageName)
-		if err != nil {
-			return nil, err
-		}
-		boardAssets = append(boardAssets, Asset{Name: imageName, ID: -i - 2, Image: additionalImage})
-	}
+	// preload additional assets
+	loadArcImage(zr)
+	loadFont(zr)
 
 	return boardAssets, nil
 }

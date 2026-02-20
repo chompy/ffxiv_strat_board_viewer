@@ -1,4 +1,4 @@
-package main
+package strategy_board
 
 import (
 	"image"
@@ -11,17 +11,19 @@ import (
 	"github.com/fogleman/gg"
 )
 
-const drawObjectPoint = false
 const canvasWidth = 1024
 const canvasHeight = 768
 
-func DrawBoard(board Board) (*gg.Context, error) {
-
+func Draw(board Board) (*gg.Context, error) {
+	// load assets for given board
 	assetList, err := board.Assets()
 	if err != nil {
 		return nil, err
 	}
 
+	log.Println("Draw strategy board")
+
+	// create canvas
 	c := gg.NewContext(canvasWidth, canvasHeight)
 
 	// draw background
@@ -32,27 +34,27 @@ func DrawBoard(board Board) (*gg.Context, error) {
 		}
 	}
 
+	// draw each board object
 	for _, object := range slices.Backward(board.Objects) {
 		if err := drawObject(object, assetList, c); err != nil {
 			return nil, err
-		}
-		if drawObjectPoint {
-			drawPoint(object, c)
 		}
 	}
 
 	return c, nil
 }
 
-func drawObject(object BoardObject, assets []Asset, c *gg.Context) error {
+func drawObject(object Object, assets []Asset, c *gg.Context) error {
+	log.Printf("  - Draw object (ID=%d)", object.TypeID)
+	if !object.Visible {
+		log.Println("    - Object not visible, skipping")
+		return nil
+	}
 	switch object.TypeID {
 	case 10:
-		var arcImage image.Image
-		for _, asset := range assets {
-			if asset.Name == "xcircle_aoe.png" {
-				arcImage = asset.Image
-				break
-			}
+		arcImage, err := loadArcImage(nil)
+		if err != nil {
+			return err
 		}
 		return drawArc(object, arcImage, c)
 	case 11:
@@ -76,14 +78,18 @@ func drawObject(object BoardObject, assets []Asset, c *gg.Context) error {
 	return AssetNotFound
 }
 
-func drawTextObject(object BoardObject, c *gg.Context) error {
+func drawTextObject(object Object, c *gg.Context) error {
 	if object.TypeID != 100 {
 		return DrawUnexpectedObjectError
 	}
 	if object.Text == "" {
 		return nil
 	}
-	c.LoadFontFace("assets/Roboto-Medium.ttf", 30)
+	fontFace, err := loadFont(nil)
+	if err != nil {
+		return err
+	}
+	c.SetFontFace(fontFace)
 	c.SetColor(color.NRGBA{0, 0, 0, object.Color.A})
 	c.DrawStringAnchored(object.Text, float64(object.X), float64(object.Y), 0.5, 0.5)
 	c.SetColor(object.Color)
@@ -92,7 +98,7 @@ func drawTextObject(object BoardObject, c *gg.Context) error {
 	return nil
 }
 
-func drawImageObject(object BoardObject, asset *Asset, c *gg.Context) error {
+func drawImageObject(object Object, asset *Asset, c *gg.Context) error {
 	c.Translate(float64(object.X), float64(object.Y))
 	c.Scale(object.ScaleFactor(asset.Scale))
 	c.Rotate(gg.Radians(float64(object.Angle)))
@@ -104,7 +110,7 @@ func drawImageObject(object BoardObject, asset *Asset, c *gg.Context) error {
 	return nil
 }
 
-func drawLineAoe(object BoardObject, c *gg.Context) error {
+func drawLineAoe(object Object, c *gg.Context) error {
 	c.Translate(float64(object.X), float64(object.Y))
 	c.Rotate(gg.Radians(float64(object.Angle)))
 	w, h := float64(object.Params[0]), float64(object.Params[1])
@@ -115,7 +121,7 @@ func drawLineAoe(object BoardObject, c *gg.Context) error {
 	return nil
 }
 
-func drawLine(object BoardObject, c *gg.Context) error {
+func drawLine(object Object, c *gg.Context) error {
 	x2, y2 := math.Round(float64(object.Params[0])/5120*canvasWidth), math.Round(float64(object.Params[1])/3840*canvasHeight)
 	c.SetLineWidth(float64(object.Params[2]) * 2)
 	c.SetColor(object.Color)
@@ -132,7 +138,7 @@ func drawLine(object BoardObject, c *gg.Context) error {
 	return nil
 }
 
-func drawArc(object BoardObject, image image.Image, c *gg.Context) error {
+func drawArc(object Object, image image.Image, c *gg.Context) error {
 	// calculate the angle of the arc and its radius
 	arcAngle := float64(object.Params[0]) / 180.0 * math.Pi
 	startAngle := -math.Pi / 2.0
@@ -189,12 +195,4 @@ func drawArc(object BoardObject, image image.Image, c *gg.Context) error {
 
 	return nil
 
-}
-
-func drawPoint(object BoardObject, c *gg.Context) {
-	c.Translate(float64(object.X), float64(object.Y))
-	c.SetColor(color.NRGBA{255, 0, 0, 255})
-	c.DrawPoint(0, 0, 10)
-	c.Fill()
-	c.Identity()
 }

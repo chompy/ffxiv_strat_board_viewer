@@ -1,2 +1,3 @@
 out.png
-tools/import_assets/data
+tools/asset_compiler/assets/ffxiv-strategy-board-viewer
+*.sh

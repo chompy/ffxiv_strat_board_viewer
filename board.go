@@ -1,10 +1,10 @@
-package main
+package strategy_board
 
 import (
 	"image/color"
 )
 
-type BoardObject struct {
+type Object struct {
 	TypeID         int         `json:"type_id"`
 	Text           string      `json:"text"`
 	Visible        bool        `json:"visible"`
@@ -18,7 +18,7 @@ type BoardObject struct {
 	Params         []int       `json:"params"`
 }
 
-func (o BoardObject) ScaleFactor(factor float64) (float64, float64) {
+func (o Object) ScaleFactor(factor float64) (float64, float64) {
 	scale := float64(o.Scale) * factor
 	flipH := 1.0
 	if o.FlipHorizontal {
@@ -32,11 +32,7 @@ func (o BoardObject) ScaleFactor(factor float64) (float64, float64) {
 }
 
 type Board struct {
-	Name       string        `json:"name"`
-	Background int           `json:"background"`
-	Objects    []BoardObject `json:"object"`
-}
-
-func (b Board) Assets() ([]Asset, error) {
-	return LoadBoardAssets(b)
+	Name       string   `json:"name"`
+	Background int      `json:"background"`
+	Objects    []Object `json:"object"`
 }
