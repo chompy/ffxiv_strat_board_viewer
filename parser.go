@@ -192,7 +192,14 @@ func Parse(data []byte) (Board, error) {
 			}
 		}
 	}
-	return Board{Name: name, Objects: objects}, nil
+
+	if readUint16(data, &pos) != 3 {
+		return Board{}, SectionParseError
+	}
+	pos += 4
+	background := readUint16(data, &pos)
+
+	return Board{Name: name, Background: background, Objects: objects}, nil
 
 }
 

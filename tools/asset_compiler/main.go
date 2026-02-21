@@ -158,7 +158,7 @@ func main() {
 		file, err := os.Open(pathTo)
 		handleError(err)
 		defer file.Close()
-		handleError(writeToZip(writer, filePath, file))
+		handleError(writeToZip(writer, filepath.Base(filePath), file))
 	}
 
 	log.Println("Save assets.json")

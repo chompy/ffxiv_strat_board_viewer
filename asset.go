@@ -131,7 +131,7 @@ func (a *Asset) loadAssetImage(zr *zip.Reader) error {
 
 /* Load background image from zip read */
 func loadBackgroundImage(zr *zip.Reader, id int) (image.Image, error) {
-	return loadImage(zr, fmt.Sprintf("x%d.png", id+1))
+	return loadImage(zr, fmt.Sprintf("x%d.png", id))
 }
 
 /* Load arc image, aka circle aoe, used by a few objects */

@@ -28,7 +28,8 @@ func Draw(board Board) (*gg.Context, error) {
 
 	// draw background
 	for _, asset := range assetList {
-		if asset.Name == "Background" {
+		if asset.ID == -1 {
+			log.Printf("   - Draw background (ID=%d)", board.Background)
 			c.DrawImage(asset.Image, 0, 0)
 			break
 		}
