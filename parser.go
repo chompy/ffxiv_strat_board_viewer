@@ -187,9 +187,12 @@ func Parse(data []byte) (Board, error) {
 		}
 		for i := range objects {
 			objects[i].Params = append(objects[i].Params, readInt16(data, &pos))
-			if logVerbose {
-				log.Printf("    - OBJ %d Params: %d", i+1, objects[i].Params)
-			}
+
+		}
+	}
+	if logVerbose {
+		for i := range objects {
+			log.Printf("    - OBJ %d Params: %d", i+1, objects[i].Params)
 		}
 	}
 

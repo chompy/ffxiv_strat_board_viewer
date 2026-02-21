@@ -29,7 +29,7 @@ func Draw(board Board) (*gg.Context, error) {
 	// draw background
 	for _, asset := range assetList {
 		if asset.ID == -1 {
-			log.Printf("   - Draw background (ID=%d)", board.Background)
+			log.Printf("  - Draw background (ID=%d)", board.Background)
 			c.DrawImage(asset.Image, 0, 0)
 			break
 		}
@@ -46,7 +46,7 @@ func Draw(board Board) (*gg.Context, error) {
 }
 
 func drawObject(object Object, assets []Asset, c *gg.Context) error {
-	log.Printf("  - Draw object (ID=%d)", object.TypeID)
+	log.Printf("  - Draw object (TYPE=%d)", object.TypeID)
 	if !object.Visible {
 		log.Println("    - Object not visible, skipping")
 		return nil
@@ -183,8 +183,9 @@ func drawArc(object Object, image image.Image, c *gg.Context) error {
 	if image != nil {
 		// draw arc using image as mask
 		nc.Clip()
-		s := float64(object.Scale) * .01
-		nc.ScaleAbout(s, s, -ox, -oy)
+		// TODO fix
+		//csx, csy := object.ScaleFactor(.01)
+		//nc.ScaleAbout(csx, csy, -ox, -oy)
 		nc.DrawImageAnchored(image, int(ox), int(oy), 0.5, 0.5)
 	} else {
 		// draw arc using solid color
