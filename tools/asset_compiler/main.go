@@ -31,7 +31,7 @@ var additionalImages = []string{
 	"assets/background/7",
 }
 var additionalFiles = []string{
-	"Roboto-Medium.ttf",
+	"roboto/Roboto-Medium.ttf",
 }
 var images map[string]image.Image
 
